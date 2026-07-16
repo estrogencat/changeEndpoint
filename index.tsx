@@ -1,115 +1,14 @@
-/**
- * changeEndpoint - Vencord/Equicord userplugin
- */
-
 import definePlugin from "@utils/types";
-import { OptionType } from "@utils/types";
-import { definePluginSettings } from "@api/Settings";
 
-const FERMI_API_ENDPOINT = "//api.harmony.melodychat.org/api";
-const FERMI_CDN_HOST = "cdn.harmony.melodychat.org";
-const FERMI_GATEWAY_ENDPOINT = "wss://gateway.harmony.melodychat.org";
-const FERMI_MEDIA_PROXY_ENDPOINT = "//cdn.harmony.melodychat.org";
-
-export const settings = definePluginSettings({
-    disableQuests: {
-        type: OptionType.BOOLEAN,
-        description: "Block Quests requests (/quests/*) and hide the Quests button",
-        default: false,
-        onChange: () => rebuildHiddenButtonsCSS()
-    },
-    disableShop: {
-        type: OptionType.BOOLEAN,
-        description: "Block Shop/SKU requests (/store/published-listings/skus) and hide the Shop button",
-        default: false,
-        onChange: () => rebuildHiddenButtonsCSS()
-    },
-    disablePowerups: {
-        type: OptionType.BOOLEAN,
-        description: "Block server boost Powerups requests (/guilds/:id/powerups)",
-        default: false
-    },
-    disableGameDetection: {
-        type: OptionType.BOOLEAN,
-        description: "Block game-activity detection requests (detectables/games.json, non-games.json, /games/detectable/exclusions)",
-        default: false
-    },
-    disablePromotions: {
-        type: OptionType.BOOLEAN,
-        description: "Block promotions requests (/promotions)",
-        default: false
-    },
-    disableExternalAssets: {
-        type: OptionType.BOOLEAN,
-        description: "Block application external-assets requests (/applications/:id/external-assets)",
-        default: false
-    }
-});
-
-// These don't work right now btw
-const BLOCKED_ENDPOINTS: Array<[keyof typeof settings.store, RegExp]> = [
-    ["disableQuests", /\/api\/v9\d+\/quests\//],
-    ["disableShop", /\/api\/v9\d+\/store\/published-listings\/skus/],
-    ["disablePowerups", /\/api\/v9\d+\/guilds\/\d+\/powerups/],
-    ["disableGameDetection", /\/detectables\/(games|non-games)\.json|\/api\/v\d+\/games\/detectable\/exclusions/],
-    ["disablePromotions", /\/api\/v9\d+\/promotions/],
-    ["disableExternalAssets", /\/api\/v9\d+\/applications\/\d+\/external-assets/]
-];
-
-const HIDEABLE_BUTTON_CSS: Partial<Record<keyof typeof settings.store, string>> = {
-    disableQuests: '[data-list-item-id*="___quests"]',
-    disableShop: '[data-list-item-id*="___shop"]'
-};
-
-let origFetch: typeof window.fetch | null = null;
-let styleEl: HTMLStyleElement | null = null;
-
-function rebuildHiddenButtonsCSS() {
-    if (!styleEl) return;
-    const selectors = Object.entries(HIDEABLE_BUTTON_CSS)
-        .filter(([key]) => settings.store[key as keyof typeof settings.store])
-        .map(([, selector]) => selector);
-    styleEl.textContent = selectors.length
-        ? `${selectors.join(",")} { display: none !important; }`
-        : "";
-}
+import { settings } from "./settings";
+import { getApiEndpoint, getCdnHost, getGatewayEndpoint, getMediaProxyEndpoint } from "./utils";
 
 export default definePlugin({
-    name: "changeEndpoint",
-    description: "Redirects Discord API/CDN/Gateway traffic to fermi.chat's Harmony backend by default",
+    name: "ChangeEndpoint",
+    description: "Redirects Discord API/CDN/Gateway traffic to a Spacebar backend (Harmony by default, or a custom one)",
     authors: [],
     required: true,
     settings,
-
-    start() {
-        origFetch = window.fetch.bind(window);
-        window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-            const url = typeof input === "string"
-                ? input
-                : input instanceof URL
-                    ? input.toString()
-                    : input.url;
-
-            for (const [key, pattern] of BLOCKED_ENDPOINTS) {
-                if (settings.store[key] && pattern.test(url)) {
-                    return Promise.resolve(new Response(null, { status: 404, statusText: "Not Found" }));
-                }
-            }
-
-            return origFetch!(input as any, init);
-        };
-
-        styleEl = document.createElement("style");
-        styleEl.id = "vc-fermiendpoint-hidden-buttons";
-        document.head.appendChild(styleEl);
-        rebuildHiddenButtonsCSS();
-    },
-
-    stop() {
-        if (origFetch) window.fetch = origFetch;
-        styleEl?.remove();
-        styleEl = null;
-    },
 
     patches: [
         {
@@ -117,7 +16,7 @@ export default definePlugin({
             all: true,
             replacement: {
                 match: /window\.GLOBAL_ENV\.API_ENDPOINT/g,
-                replace: () => JSON.stringify(FERMI_API_ENDPOINT)
+                replace: () => JSON.stringify(getApiEndpoint())
             }
         },
         {
@@ -125,7 +24,7 @@ export default definePlugin({
             all: true,
             replacement: {
                 match: /window\.GLOBAL_ENV\.CDN_HOST/g,
-                replace: () => JSON.stringify(FERMI_CDN_HOST)
+                replace: () => JSON.stringify(getCdnHost())
             }
         },
         {
@@ -133,7 +32,7 @@ export default definePlugin({
             all: true,
             replacement: {
                 match: /window\.GLOBAL_ENV\.GATEWAY_ENDPOINT/g,
-                replace: () => JSON.stringify(FERMI_GATEWAY_ENDPOINT)
+                replace: () => JSON.stringify(getGatewayEndpoint())
             }
         },
         {
@@ -141,7 +40,7 @@ export default definePlugin({
             all: true,
             replacement: {
                 match: /window\.GLOBAL_ENV\.MEDIA_PROXY_ENDPOINT/g,
-                replace: () => JSON.stringify(FERMI_MEDIA_PROXY_ENDPOINT)
+                replace: () => JSON.stringify(getMediaProxyEndpoint())
             }
         },
         {
@@ -165,10 +64,10 @@ export default definePlugin({
                 match: /\{([\w:,]+)\}=window\.GLOBAL_ENV/g,
                 replace: (fullMatch: string, pairsStr: string) => {
                     const overrides: Record<string, string> = {
-                        API_ENDPOINT: FERMI_API_ENDPOINT,
-                        CDN_HOST: FERMI_CDN_HOST,
-                        GATEWAY_ENDPOINT: FERMI_GATEWAY_ENDPOINT,
-                        MEDIA_PROXY_ENDPOINT: FERMI_MEDIA_PROXY_ENDPOINT
+                        API_ENDPOINT: getApiEndpoint(),
+                        CDN_HOST: getCdnHost(),
+                        GATEWAY_ENDPOINT: getGatewayEndpoint(),
+                        MEDIA_PROXY_ENDPOINT: getMediaProxyEndpoint()
                     };
                     const keysPresent = pairsStr.split(",")
                         .map(pair => pair.split(":")[0])
@@ -185,6 +84,65 @@ export default definePlugin({
                         `Object.assign({},window.GLOBAL_ENV,${overrideObjLiteral})`
                     );
                 }
+            }
+        },
+        {
+            find: "avatar_description:",
+            all: true,
+            replacement: {
+                match: /avatar:(\w+),avatar_description:\w+,avatar_id:/g,
+                replace: "avatar:$1,avatar_id:"
+            }
+        },
+        {
+            find: "getPremiumTypeOverride(){return o.premiumTypeOverride}",
+            replacement: {
+                match: /getPremiumTypeOverride\(\)\{return o\.premiumTypeOverride\}/,
+                replace: "getPremiumTypeOverride(){return 2}"
+            }
+        },
+        {
+            find: "features.has(a.GuildFeatures.ENHANCED_ROLE_COLORS)",
+            all: true,
+            replacement: {
+                match: /\w+\.features\.has\(\w+\.GuildFeatures\.ENHANCED_ROLE_COLORS\)/g,
+                replace: "true"
+            }
+        },
+        {
+            // Harmony's gateway RESUME opcode handler is a non-functional stub that
+            // always replies Invalid Session, forcing a full re-Identify anyway.
+            // Skip the resume attempt entirely and always Identify on reconnect,
+            // saving a wasted round trip (HELLO -> RESUME -> INVALID_SESSION -> IDENTIFY).
+            find: "_doResumeOrIdentify(){",
+            replacement: {
+                match: /_doResumeOrIdentify\(\)\{[^}]*?\?this\._doResume\(\):this\._doIdentify\(\)/,
+                replace: "_doResumeOrIdentify(){this._doIdentify()"
+            }
+        },
+        {
+            // Real Discord clients send `preferred_regions` (array) alongside
+            // `preferred_region` in VOICE_STATE_UPDATE when joining a voice channel.
+            // Harmony's VoiceStateUpdateSchema doesn't recognise the plural field and
+            // closes the gateway with a 4002 decode error the instant you try to join
+            // voice, which then cascades into a reconnect. Just never attach it.
+            find: "c.preferred_region=",
+            replacement: {
+                match: /\(c\.preferred_region=(\w+),c\.preferred_regions=\w+\)/,
+                replace: "(c.preferred_region=$1)"
+            }
+        },
+        {
+            // Spacebar/Harmony don't probe uploaded attachments for width/height,
+            // so image/video attachments always come back with width:null,height:null.
+            // The media-sizing helpers below then do arithmetic on null, producing
+            // NaN dimensions, so the embed renders at NaN x NaN (invisible).
+            // Fall back to filling the available max box when width/height are missing.
+            find: "maxWidth:i,maxHeight:r",
+            all: true,
+            replacement: {
+                match: /\{width:t,height:n,maxWidth:i,maxHeight:r(?:,minWidth:a=0,minHeight:s=0)?\}=e[^;]*;/g,
+                replace: (match: string) => `${match}null==t&&(t=i,n=r);`
             }
         }
     ]
