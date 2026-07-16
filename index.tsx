@@ -110,10 +110,6 @@ export default definePlugin({
             }
         },
         {
-            // Harmony's gateway RESUME opcode handler is a non-functional stub that
-            // always replies Invalid Session, forcing a full re-Identify anyway.
-            // Skip the resume attempt entirely and always Identify on reconnect,
-            // saving a wasted round trip (HELLO -> RESUME -> INVALID_SESSION -> IDENTIFY).
             find: "_doResumeOrIdentify(){",
             replacement: {
                 match: /_doResumeOrIdentify\(\)\{[^}]*?\?this\._doResume\(\):this\._doIdentify\(\)/,
@@ -121,11 +117,6 @@ export default definePlugin({
             }
         },
         {
-            // Real Discord clients send `preferred_regions` (array) alongside
-            // `preferred_region` in VOICE_STATE_UPDATE when joining a voice channel.
-            // Harmony's VoiceStateUpdateSchema doesn't recognise the plural field and
-            // closes the gateway with a 4002 decode error the instant you try to join
-            // voice, which then cascades into a reconnect. Just never attach it.
             find: "c.preferred_region=",
             replacement: {
                 match: /\(c\.preferred_region=(\w+),c\.preferred_regions=\w+\)/,
@@ -133,11 +124,6 @@ export default definePlugin({
             }
         },
         {
-            // Spacebar/Harmony don't probe uploaded attachments for width/height,
-            // so image/video attachments always come back with width:null,height:null.
-            // The media-sizing helpers below then do arithmetic on null, producing
-            // NaN dimensions, so the embed renders at NaN x NaN (invisible).
-            // Fall back to filling the available max box when width/height are missing.
             find: "maxWidth:i,maxHeight:r",
             all: true,
             replacement: {
@@ -146,12 +132,6 @@ export default definePlugin({
             }
         },
         {
-            // The above fixes the size-math functions, but attachments never even
-            // reach them: whatever gate decides "render as media vs generic file
-            // link" checks attachment.width/height truthiness directly, and null
-            // fails that check, so it falls back to a plain file link (as seen).
-            // Fix it at the source instead: the attachment normalizer that turns
-            // the raw server payload into the client's internal record.
             find: "originalContentType:e.original_content_type,loadingState:e.loading_state",
             replacement: {
                 match: /height:e\.height,width:e\.width,/,
@@ -159,19 +139,31 @@ export default definePlugin({
             }
         },
         {
-            // The native discord_voice engine speaks Discord's legacy raw-UDP
-            // IP-discovery + RTP protocol, which Harmony's rtc-worker doesn't
-            // implement (it only speaks WebRTC ICE/DTLS, same as the browser
-            // client uses). The engine picker tries NATIVE before WEBRTC and
-            // NATIVE always reports supported on desktop, so it always wins and
-            // voice connect times out. Swap the priority so WebRTC is tried
-            // first (still falls back to NATIVE if WebRTC somehow isn't
-            // supported, and to DUMMY after that).
-            find: "].find(e=>",
+            find: "].find(e=>E(e).supported())",
             replacement: {
                 match: /\[(\w+\.\w+\.NATIVE),(\w+\.\w+\.WEBRTC)\]\.find\(e=>\w+\(e\)\.supported\(\)\)/,
                 replace: (match: string, native: string, webrtc: string) =>
                     match.replace(`[${native},${webrtc}]`, `[${webrtc},${native}]`)
+            }
+        },
+        {
+            find: "\"Microsoft Edge\"===",
+            replacement: {
+                match: /"Chrome"===(\w+)\(\)\.name\|\|"Safari"===\w+\(\)\.name\|\|"Firefox"===\w+\(\)\.name&&(\w+)>=80\|\|"Opera"===\w+\(\)\.name\|\|"Microsoft Edge"===\w+\(\)\.name/,
+                replace: (match: string, fn: string, ver: string) =>
+                    `(${match}||"Electron"===${fn}().name&&${ver}>=1)`
+            }
+        },
+        {
+            // Discord is rolling out a new experiment ("2026-07-windows-camera-mic-permissions")
+            // that adds a genuine Windows OS-level camera/mic permission check instead of
+            // always trusting the app. Since this isn't the officially-signed Discord.exe,
+            // that native check fails/denies ("Camera Access Is Denied" dialog). Force the
+            // pre-experiment behavior (always permit) regardless of experiment bucketing.
+            find: "get platformAlwaysPermits(){return",
+            replacement: {
+                match: /get platformAlwaysPermits\(\)\{return.*?\.checkPermissionsEnabled\}/,
+                replace: "get platformAlwaysPermits(){return!0}"
             }
         }
     ]
