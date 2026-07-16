@@ -1,4 +1,4 @@
-# FermiEndpoint (Vencord/Equicord userplugin)
+# ChangeEndpoint (Vencord/Equicord userplugin)
 
 Redirects Discord's REST API, CDN, and Gateway traffic to **fermi.chat's**
 Harmony backend (`harmony.melodychat.org`) by default, which is changeable in plugin settings, plus a set of janky fixes for
@@ -11,7 +11,7 @@ Install a secondary client if you have a main client, as this plugin is set as r
 <sub><sup>This plugin was built and tested on canary ONLY, results may vary on stable and PTB</sub></sup>
 
 ```bash
-mkdir -p src/userplugins/FermiEndpoint
+mkdir -p src/userplugins/ChangeEndpoint
 # copy files into that folder
 pnpm install
 pnpm build
