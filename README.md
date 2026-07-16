@@ -7,7 +7,7 @@ This plugin is compatible with Spacebar and Harmony.
 
 ## Install
 
-Install a secondary client if you have a main client<br>
+Install a secondary client if you have a main client, as this plugin is set as required and cannot be disabled.<br>
 <sub><sup>This plugin was built and tested on canary ONLY, results may vary on stable and PTB</sub></sup>
 
 ```bash
