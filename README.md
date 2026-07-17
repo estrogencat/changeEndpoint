@@ -4,6 +4,8 @@ Redirects Discord's REST API, CDN, and Gateway traffic to **fermi.chat's**
 Harmony backend (`harmony.melodychat.org`) by default, which is changeable in plugin settings, plus a set of janky fixes for
 things that broke or misbehaved.<br>
 This plugin is compatible with Spacebar and Harmony.
+> [!NOTE]
+> This was assisted by Claude Sonnet 5 Low (especially in the voicechat fixes) as discord devs sucks at coding and gave me and my friend multiple headaches.
 
 ## Install
 
