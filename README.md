@@ -8,7 +8,8 @@ This plugin is compatible with Spacebar and Harmony.
 ## Install
 
 Install a secondary client if you have a main client, as this plugin is set as required and cannot be disabled.<br>
-<sub><sup>cough cough [equibop with it built in](https://github.com/meownyaaa/Equibop/releases/tag/v3.2.1) also thisll overwrite any equibop install you currently have and i am not fixing it. ha.</sub></sup>
+<sup>cough cough [equibop with it built in](https://github.com/meownyaaa/Equibop/releases/tag/v3.2.1) also thisll overwrite any equibop install you currently have and i am not fixing it. ha.</sub><br>
+<sub><sup>btw in some rare cases (like mine) equibop can cause eac to freak out and bsod your pc with MEMORY_MANAGEMENT. it isnt your ram most likely and ill be damned if my £150 kit is faulty.</sup></sub>
 
 ```bash
 mkdir -p src/userplugins/ChangeEndpoint
