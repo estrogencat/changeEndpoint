@@ -39,13 +39,13 @@ Updating username/discriminator/bio/pronouns/PFP/banner<br>
 DMs<br>
 Friendship endpoint<br>
 Server rearranging (slightly slow to update if moved on another client)<br>
+Klipy GIF search/sending (sends the correct static link)<br>
+Video playback (replaced discord's video player with the one your browser/client uses)<br>
+<img width="602" height="392" alt="image" src="https://github.com/user-attachments/assets/9fdfe122-237b-421d-9802-06eb1ce56051" />
 
 ### Partial
 
 VC joining on Desktop client (can join, thinks no permissions are granted. Cannot screenshare, viewing other screenshares and listening to voice isnt tested)<br>
-Video playback (replaced discord's video player with the one your browser/client uses)<br>
-<img width="602" height="392" alt="image" src="https://github.com/user-attachments/assets/9fdfe122-237b-421d-9802-06eb1ce56051" />
-
 
 ### Broken
 
