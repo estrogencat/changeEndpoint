@@ -23,6 +23,7 @@ Fully quit Discord (tray icon, not just closing the window) and relaunch.
 
 ## What's confirmed working
 
+VC on website client<br>
 Messaging<br>
 Emojis/stickers<br>
 Registering<br>
@@ -39,7 +40,10 @@ Friendship endpoint<br>
 
 ### Partial
 
-VC joining (RTC timeout, spacebar issue, works on web discord client)<br>
+VC joining on Desktop client (can join, thinks no permissions are granted. Cannot screenshare, viewing other screenshares and listening to voice isnt tested)<br>
+Video playback (replaced discord's video player with the one your browser/client uses)<br>
+<img width="602" height="392" alt="image" src="https://github.com/user-attachments/assets/9fdfe122-237b-421d-9802-06eb1ce56051" />
+
 
 ### Broken
 
