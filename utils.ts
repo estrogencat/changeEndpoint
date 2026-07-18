@@ -1,5 +1,5 @@
 import { settings } from "./settings";
-
+// to change the backend urls from the source itself, edit these
 const HARMONY_API_ENDPOINT = "//api.harmony.melodychat.org/api";
 const HARMONY_CDN_HOST = "cdn.harmony.melodychat.org";
 const HARMONY_GATEWAY_ENDPOINT = "wss://gateway.harmony.melodychat.org";

@@ -1,8 +1,250 @@
 import definePlugin from "@utils/types";
+import { findByPropsLazy, findStore, findStoreLazy } from "@webpack";
+import { FluxDispatcher, RestAPI } from "@webpack/common";
 
-import { startGuildOrderSync, stopGuildOrderSync } from "./guildOrderSync";
 import { settings } from "./settings";
 import { getApiEndpoint, getCdnHost, getGatewayEndpoint, getMediaProxyEndpoint } from "./utils";
+
+// polls backend's guild_folders, applies them locally, pushes local
+// reordering back. Guards against writing not-yet-loaded guild IDs
+
+const GuildActionCreators = findByPropsLazy("moveById", "createGuildFolderLocal");
+const GuildStore = findByPropsLazy("getGuild", "getGuilds");
+
+interface HarmonyGuildFolder {
+    id: string | null;
+    name: string | null;
+    guild_ids: string[];
+    color: number | null;
+}
+
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSignature: string | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollingStarted = false;
+
+const POLL_INTERVAL = 45 * 1000;
+
+function toHarmonyFolders(): HarmonyGuildFolder[] {
+    const SortedGuildStore = findStore("SortedGuildStore");
+    const folders = SortedGuildStore.getGuildFolders();
+
+    return folders.map((f: any) => ({
+        id: f.folderId ?? null,
+        name: f.folderName ?? null,
+        guild_ids: f.guildIds,
+        color: f.folderColor ?? null
+    }));
+}
+
+async function pushGuildOrder() {
+    try {
+        const guild_folders = toHarmonyFolders();
+        await RestAPI.patch({
+            url: "/users/@me/settings",
+            body: { guild_folders }
+        });
+        lastSignature = JSON.stringify(guild_folders);
+    } catch (e) {
+        console.error("[ChangeEndpoint] Failed to push guild order", e);
+    }
+}
+
+function schedulePush() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(pushGuildOrder, 1500);
+}
+
+async function applyGuildOrder(folders: HarmonyGuildFolder[]) {
+    const totalIds = folders.reduce((n, f) => n + f.guild_ids.filter(Boolean).length, 0);
+    const loadedIds = folders.reduce(
+        (n, f) => n + f.guild_ids.filter(id => id && GuildStore.getGuild(id)).length,
+        0
+    );
+
+    // don't reorder until every guild id is actually loaded
+    if (loadedIds < totalIds) {
+        console.log(`[ChangeEndpoint] Guilds not fully loaded yet (${loadedIds}/${totalIds}), deferring order apply`);
+        return false;
+    }
+
+    let anchor: string | null = null;
+
+    for (const folder of folders) {
+        const ids = folder.guild_ids.filter(Boolean);
+        if (!ids.length) continue;
+
+        if (ids.length > 1) {
+            GuildActionCreators.createGuildFolderLocal(ids, folder.name ?? null);
+        } else if (anchor) {
+            GuildActionCreators.moveById(ids[0], anchor, true, false);
+        }
+
+        anchor = ids[ids.length - 1];
+    }
+
+    return true;
+}
+
+async function pollSavedGuildOrder() {
+    try {
+        const res = await RestAPI.get({ url: "/users/@me/settings" });
+        const folders: HarmonyGuildFolder[] = res?.body?.guild_folders ?? [];
+        const signature = JSON.stringify(folders);
+
+        if (folders.length && signature !== lastSignature) {
+            console.log("[ChangeEndpoint] Applying updated guild order from server", folders);
+            const applied = await applyGuildOrder(folders);
+            if (applied) lastSignature = signature;
+        }
+    } catch (e) {
+        console.error("[ChangeEndpoint] Failed to poll saved guild order", e);
+    } finally {
+        pollTimer = setTimeout(pollSavedGuildOrder, POLL_INTERVAL);
+    }
+}
+
+function startGuildOrderSync() {
+    if (pollingStarted) return;
+    pollingStarted = true;
+
+    pollSavedGuildOrder();
+
+    FluxDispatcher.subscribe("GUILD_MOVE_BY_ID", schedulePush);
+    FluxDispatcher.subscribe("GUILD_FOLDER_CREATE_LOCAL", schedulePush);
+    FluxDispatcher.subscribe("GUILD_FOLDER_EDIT_LOCAL", schedulePush);
+    FluxDispatcher.subscribe("GUILD_FOLDER_DELETE_LOCAL", schedulePush);
+}
+
+function stopGuildOrderSync() {
+    pollingStarted = false;
+
+    if (pollTimer) clearTimeout(pollTimer);
+
+    FluxDispatcher.unsubscribe("GUILD_MOVE_BY_ID", schedulePush);
+    FluxDispatcher.unsubscribe("GUILD_FOLDER_CREATE_LOCAL", schedulePush);
+    FluxDispatcher.unsubscribe("GUILD_FOLDER_EDIT_LOCAL", schedulePush);
+    FluxDispatcher.unsubscribe("GUILD_FOLDER_DELETE_LOCAL", schedulePush);
+    if (debounceTimer) clearTimeout(debounceTimer);
+}
+
+// after a forced reconnect, VoiceStateStore can still claim we're in a
+// channel while RTC is actually dead. cross-check against RTCConnectionStore
+// and force a real leave+rejoin when they disagree.
+
+const VoiceActions = findByPropsLazy("selectVoiceChannel");
+const RTCConnectionStore = findStoreLazy("RTCConnectionStore");
+const VoiceStateStore = findStoreLazy("VoiceStateStore");
+const UserStore = findStoreLazy("UserStore");
+
+// excludes transient states like CONNECTING/ICE_CHECKING/AUTHENTICATING.
+const DEAD_STATES = new Set(["DISCONNECTED", "RTC_DISCONNECTED", "NO_ROUTE"]);
+
+const GRACE_MS = 5000;
+const REJOIN_DELAY_MS = 1000; // selectVoiceChannel no-ops if called with the current channel
+
+let graceTimer: ReturnType<typeof setTimeout> | null = null;
+let recovering = false;
+
+function isPhantomVoiceState(): { channelId: string; } | null {
+    const me = UserStore.getCurrentUser();
+    if (!me) return null;
+
+    const myVoiceState = VoiceStateStore.getVoiceStateForUser(me.id);
+    if (!myVoiceState?.channelId) return null;
+
+    const rtcState: string = RTCConnectionStore.getState();
+    const rtcConnected: boolean = RTCConnectionStore.isConnected();
+
+    if (!rtcConnected && DEAD_STATES.has(rtcState)) {
+        return { channelId: myVoiceState.channelId };
+    }
+    return null;
+}
+
+function attemptVoiceRecovery() {
+    if (recovering) return;
+    const phantom = isPhantomVoiceState();
+    if (!phantom) return;
+
+    recovering = true;
+    const { channelId } = phantom;
+    console.log(
+        `[ChangeEndpoint] Voice state looks phantom (client thinks it's in ${channelId}, ` +
+        `RTC state is ${RTCConnectionStore.getState()}) - forcing a real rejoin`
+    );
+
+    VoiceActions.selectVoiceChannel(null);
+    setTimeout(() => {
+        VoiceActions.selectVoiceChannel(channelId);
+        recovering = false;
+    }, REJOIN_DELAY_MS);
+}
+
+function onVoicePhantomCheckTrigger() {
+    if (graceTimer) clearTimeout(graceTimer);
+    graceTimer = setTimeout(attemptVoiceRecovery, GRACE_MS);
+}
+
+function startVoicePhantomFix() {
+    FluxDispatcher.subscribe("CONNECTION_OPEN", onVoicePhantomCheckTrigger);
+    FluxDispatcher.subscribe("VOICE_CONNECTION_STATUS", onVoicePhantomCheckTrigger);
+}
+
+function stopVoicePhantomFix() {
+    FluxDispatcher.unsubscribe("CONNECTION_OPEN", onVoicePhantomCheckTrigger);
+    FluxDispatcher.unsubscribe("VOICE_CONNECTION_STATUS", onVoicePhantomCheckTrigger);
+    if (graceTimer) clearTimeout(graceTimer);
+    recovering = false;
+}
+
+// forces a fresh gateway reconnect when the tab returns from being
+// backgrounded long enough that a heartbeat ack was likely missed,
+// instead of waiting for Harmony's own 4009 timeout.
+
+let gatewaySocket: WebSocket | null = null;
+let hiddenSince: number | null = null;
+const HIDDEN_RECONNECT_THRESHOLD_MS = 30_000;
+
+function installGatewaySocketCapture() {
+    const w = window as any;
+    if (w.__changeEndpointSocketCaptureInstalled) return;
+    w.__changeEndpointSocketCaptureInstalled = true;
+
+    const OriginalWebSocket = window.WebSocket;
+    function PatchedWebSocket(this: any, url: string | URL, protocols?: string | string[]) {
+        const ws = new OriginalWebSocket(url, protocols as any);
+        if (typeof url === "string" && url.includes("gateway.")) gatewaySocket = ws;
+        return ws;
+    }
+    PatchedWebSocket.prototype = OriginalWebSocket.prototype;
+    Object.setPrototypeOf(PatchedWebSocket, OriginalWebSocket);
+    window.WebSocket = PatchedWebSocket as any;
+}
+
+function onVisibilityChange() {
+    if (document.hidden) {
+        hiddenSince = Date.now();
+        return;
+    }
+    if (hiddenSince && Date.now() - hiddenSince > HIDDEN_RECONNECT_THRESHOLD_MS) {
+        console.log("[ChangeEndpoint] Tab backgrounded - forcing reconnect ahead of a possible heartbeat timeout");
+        gatewaySocket?.close(4000, "ChangeEndpoint proactive reconnect");
+    }
+    hiddenSince = null;
+}
+
+function startHeartbeatWatchdog() {
+    installGatewaySocketCapture();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+}
+
+function stopHeartbeatWatchdog() {
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    hiddenSince = null;
+}
+
+
 
 export default definePlugin({
     name: "ChangeEndpoint",
@@ -13,6 +255,8 @@ export default definePlugin({
 
     start() {
         startGuildOrderSync();
+        startVoicePhantomFix();
+        startHeartbeatWatchdog();
 
         if (typeof DiscordNative === "undefined") return;
 
@@ -33,6 +277,8 @@ export default definePlugin({
 
     stop() {
         stopGuildOrderSync();
+        stopVoicePhantomFix();
+        stopHeartbeatWatchdog();
     },
 
     patches: [

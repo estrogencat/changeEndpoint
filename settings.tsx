@@ -23,7 +23,7 @@ function clearCachedLoginData() {
 
         Toasts.show({
             id: Toasts.genId(),
-            message: "Cleared cached login data. Go back to the plugins screen, scroll up and press Restart.",
+            message: "Cleared cached login data. Fully quit Discord (tray icon, not just the window) and relaunch it now.",
             type: Toasts.Type.SUCCESS
         });
     } catch (e) {
@@ -44,8 +44,8 @@ function ClearCacheButton() {
                 Alerts.show({
                     title: "Clear cached login data?",
                     body: "This clears localStorage, sessionStorage, and IndexedDB for this client. " +
-                        "You'll need to restart Discord via Equicord's restart button at the top of this " +
-                        "plugins page. Continue?",
+                        "You'll need to fully quit Discord (tray icon, not just close the window) and relaunch it " +
+                        "afterward. Do this after switching backends if the client freezes at the Discord logo. Continue?",
                     confirmText: "Clear data",
                     cancelText: "Cancel",
                     confirmColor: Button.Colors.RED,
@@ -73,20 +73,19 @@ export const settings = definePluginSettings({
         options: [
             { label: "Harmony (fermi.chat)", value: "harmony", default: true },
             { label: "Custom (Simplified)", value: "custom-simple" },
-            { label: "Custom (Advanced)", value: "custom-advanced" }
+            { label: "Custom (Advanced, untested)", value: "custom-advanced" }
         ]
     },
     customBackendHost: {
         type: OptionType.STRING,
-        description: "You need reading comprehension to do this. " + 
-            "Only used with Custom (Simplified). Just the bare host, no scheme, no trailing slash " +
+        description: "Only used with Custom (Simplified). Just the bare host, no scheme, no trailing slash " +
             "(e.g. \"rory.server.spacebar.chat\"). To find this: open DevTools (Ctrl+Shift+I) on the instance's " +
             "web client, go to the Network tab, log in or reload, and look for a request whose domain starts " +
             "with \"api.\" - e.g. a request to \"api.rory.server.spacebar.chat/api/v9/...\". Everything after " +
             "\"api.\" and before the next \"/\" is the host to put here. This assumes the instance follows the " +
             "standard api.<host> / cdn.<host> / gateway.<host> convention - if it doesn't, or this doesn't work, " +
             "use Custom (Advanced) instead and enter each endpoint separately.",
-        default: "rory.server.spacebar.chat",
+        default: "",
         restartNeeded: true,
         hidden: () => !isSimple()
     },
